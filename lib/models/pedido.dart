@@ -63,6 +63,64 @@ enum TipoPedido {
   }
 }
 
+/// Método de pago del pedido
+enum MetodoPago {
+  efectivo,
+  transferencia;
+
+  String get label {
+    switch (this) {
+      case MetodoPago.efectivo:
+        return 'Efectivo';
+      case MetodoPago.transferencia:
+        return 'Transferencia';
+    }
+  }
+
+  String get emoji {
+    switch (this) {
+      case MetodoPago.efectivo:
+        return '💵';
+      case MetodoPago.transferencia:
+        return '💳';
+    }
+  }
+
+  static MetodoPago? fromString(String? value) {
+    if (value == null) return null;
+    return MetodoPago.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => MetodoPago.efectivo,
+    );
+  }
+}
+
+/// Zona del domicilio (cercano/medio/lejano)
+enum ZonaDomicilio {
+  cercano,
+  medio,
+  lejano;
+
+  String get label {
+    switch (this) {
+      case ZonaDomicilio.cercano:
+        return 'Cercano';
+      case ZonaDomicilio.medio:
+        return 'Medio';
+      case ZonaDomicilio.lejano:
+        return 'Lejano';
+    }
+  }
+
+  static ZonaDomicilio? fromString(String? value) {
+    if (value == null) return null;
+    return ZonaDomicilio.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => ZonaDomicilio.medio,
+    );
+  }
+}
+
 class ItemPedido {
   final String nombre;
   final int cantidad;
@@ -75,16 +133,16 @@ class ItemPedido {
   });
 
   factory ItemPedido.fromJson(Map<String, dynamic> json) => ItemPedido(
-        nombre: json['nombre'] as String,
-        cantidad: json['cantidad'] as int,
-        precio: (json['precio'] as num).toDouble(),
-      );
+    nombre: json['nombre'] as String,
+    cantidad: json['cantidad'] as int,
+    precio: (json['precio'] as num).toDouble(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'nombre': nombre,
-        'cantidad': cantidad,
-        'precio': precio,
-      };
+    'nombre': nombre,
+    'cantidad': cantidad,
+    'precio': precio,
+  };
 
   double get subtotal => precio * cantidad;
 }
@@ -106,6 +164,12 @@ class Pedido {
   final DateTime? preparacionAt;
   final DateTime? listoAt;
 
+  // NUEVOS CAMPOS
+  final MetodoPago? metodoPago;
+  final String? comprobanteUrl;
+  final double? costoDomicilio;
+  final ZonaDomicilio? zonaDomicilio;
+
   Pedido({
     required this.id,
     required this.numeroPedido,
@@ -122,6 +186,10 @@ class Pedido {
     required this.createdAt,
     this.preparacionAt,
     this.listoAt,
+    this.metodoPago,
+    this.comprobanteUrl,
+    this.costoDomicilio,
+    this.zonaDomicilio,
   });
 
   factory Pedido.fromJson(Map<String, dynamic> json) {
@@ -148,6 +216,13 @@ class Pedido {
       listoAt: json['listo_at'] != null
           ? DateTime.parse(json['listo_at'] as String)
           : null,
+      // Nuevos campos (todos opcionales para no romper pedidos viejos)
+      metodoPago: MetodoPago.fromString(json['metodo_pago'] as String?),
+      comprobanteUrl: json['comprobante_url'] as String?,
+      costoDomicilio: json['costo_domicilio'] != null
+          ? (json['costo_domicilio'] as num).toDouble()
+          : null,
+      zonaDomicilio: ZonaDomicilio.fromString(json['zona_domicilio'] as String?),
     );
   }
 
@@ -165,4 +240,12 @@ class Pedido {
     if (tipo == TipoPedido.local) return 'Mesa $mesa';
     return direccion ?? 'Domicilio';
   }
+
+  /// Indica si el pedido tiene comprobante de transferencia adjunto
+  bool get tieneComprobante =>
+      comprobanteUrl != null && comprobanteUrl!.isNotEmpty;
+
+  /// Indica si requiere verificación del comprobante (transferencia con foto)
+  bool get requiereVerificacion =>
+      metodoPago == MetodoPago.transferencia && tieneComprobante;
 }

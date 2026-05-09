@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/theme.dart';
 import '../models/pedido.dart';
+import '../screens/visor_comprobante_screen.dart';
 
 /// Tarjeta individual de pedido para el tablero kanban.
 ///
@@ -8,10 +9,6 @@ import '../models/pedido.dart';
 /// - Container exterior con borderRadius (y borde gris uniforme)
 /// - Una franja de color a la izquierda (Container interno) que indica el estado
 /// - Padding y contenido a la derecha
-///
-/// Esto evita el error "borderRadius can only be given on borders with
-/// uniform colors" que ocurre al mezclar borde redondeado con un lado
-/// de color distinto.
 class TarjetaPedido extends StatelessWidget {
   final Pedido pedido;
   final Color colorRestaurante;
@@ -58,7 +55,7 @@ class TarjetaPedido extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: _buildContenido(esListo),
+                        children: _buildContenido(context, esListo),
                       ),
                     ),
                   ),
@@ -71,7 +68,7 @@ class TarjetaPedido extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildContenido(bool esListo) {
+  List<Widget> _buildContenido(BuildContext context, bool esListo) {
     final widgets = <Widget>[
       _buildEncabezado(),
       const SizedBox(height: 6),
@@ -99,6 +96,12 @@ class TarjetaPedido extends StatelessWidget {
       ]);
     }
 
+    // Badges de método de pago + comprobante (solo si hay info)
+    if (pedido.metodoPago != null) {
+      widgets.add(const SizedBox(height: 8));
+      widgets.add(_buildBadgesPago(context));
+    }
+
     widgets.add(const SizedBox(height: 8));
 
     if (!esListo) {
@@ -118,6 +121,37 @@ class TarjetaPedido extends StatelessWidget {
           ),
         );
       }
+
+      // Mostrar costo de domicilio + total al final si están disponibles
+      if (pedido.tipo == TipoPedido.domicilio &&
+          pedido.costoDomicilio != null &&
+          pedido.costoDomicilio! > 0) {
+        widgets.add(const SizedBox(height: 4));
+        widgets.add(
+          Text(
+            'Domicilio${pedido.zonaDomicilio != null ? " (${pedido.zonaDomicilio!.label.toLowerCase()})" : ""}: \$${_fmt(pedido.costoDomicilio!)}',
+            style: const TextStyle(
+              fontSize: 11,
+              color: AppTheme.textoSecundario,
+            ),
+          ),
+        );
+      }
+
+      if (pedido.total != null) {
+        widgets.add(const SizedBox(height: 4));
+        widgets.add(
+          Text(
+            'Total: \$${_fmt(pedido.total!)}',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textoPrimario,
+            ),
+          ),
+        );
+      }
+
       if (pedido.notas != null && pedido.notas!.isNotEmpty) {
         widgets.add(const SizedBox(height: 8));
         widgets.add(_buildNotas());
@@ -147,6 +181,107 @@ class TarjetaPedido extends StatelessWidget {
     return widgets;
   }
 
+  /// Badges de pago (efectivo/transferencia) y botón Ver comprobante
+  Widget _buildBadgesPago(BuildContext context) {
+    final esTransferencia = pedido.metodoPago == MetodoPago.transferencia;
+    final colorBadge =
+        esTransferencia ? const Color(0xFF1976D2) : const Color(0xFF388E3C);
+    final colorBadgeFondo = esTransferencia
+        ? const Color(0xFFE3F2FD)
+        : const Color(0xFFE8F5E9);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: [
+        // Badge método de pago
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: colorBadgeFondo,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                pedido.metodoPago!.emoji,
+                style: const TextStyle(fontSize: 11),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                pedido.metodoPago!.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: colorBadge,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Botón "Ver comprobante" si hay imagen
+        if (pedido.tieneComprobante)
+          InkWell(
+            onTap: () => _abrirVisorComprobante(context),
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: const Color(0xFFFF9800),
+                  width: 0.5,
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.receipt_long,
+                    size: 12,
+                    color: Color(0xFFE65100),
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Ver comprobante',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFE65100),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _abrirVisorComprobante(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VisorComprobanteScreen(
+          comprobanteUrl: pedido.comprobanteUrl!,
+          numeroPedido: pedido.numeroPedido,
+        ),
+      ),
+    );
+  }
+
+  /// Formatea número con separador de miles colombiano
+  String _fmt(double n) {
+    final s = n.toStringAsFixed(0);
+    final buf = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write('.');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
   Widget _buildEncabezado() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -174,7 +309,7 @@ class TarjetaPedido extends StatelessWidget {
   String _textoTiempo() {
     switch (pedido.estado) {
       case EstadoPedido.preparacion:
-        return '⏱  ${pedido.tiempoFormateado}';
+        return '⏱ ${pedido.tiempoFormateado}';
       case EstadoPedido.listo:
         return '✓ listo';
       default:
@@ -240,14 +375,14 @@ class TarjetaPedido extends StatelessWidget {
     switch (pedido.estado) {
       case EstadoPedido.nuevo:
         return _ConfigBoton(
-          label: 'Aceptar  →',
+          label: 'Aceptar →',
           fondo: colorRestaurante,
           texto: Colors.white,
           borde: null,
         );
       case EstadoPedido.preparacion:
         return _ConfigBoton(
-          label: '✓  Terminado',
+          label: '✓ Terminado',
           fondo: AppTheme.verde,
           texto: Colors.white,
           borde: null,
