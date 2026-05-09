@@ -12,10 +12,12 @@ import 'services/mesas_service.dart';
 import 'services/admin_service.dart';
 import 'services/historial_service.dart';
 import 'services/usuarios_service.dart';
+import 'services/super_admin_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/cocina_screen.dart';
 import 'screens/mesero_screen.dart';
 import 'screens/admin_screen.dart';
+import 'screens/super_admin_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +46,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AdminService()),
         ChangeNotifierProvider(create: (_) => HistorialService()),
         ChangeNotifierProvider(create: (_) => UsuariosService()),
+        ChangeNotifierProvider(create: (_) => SuperAdminService()),
       ],
       child: Consumer<AuthService>(
         builder: (context, auth, _) {
@@ -65,17 +68,81 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class Gateway extends StatelessWidget {
+class Gateway extends StatefulWidget {
   const Gateway({super.key});
 
   @override
+  State<Gateway> createState() => _GatewayState();
+}
+
+class _GatewayState extends State<Gateway> {
+  bool? _ultimoEstadoAutenticado;
+  bool _verificandoSuperAdmin = false;
+
+  Future<void> _verificar(SuperAdminService superAdmin) async {
+    if (_verificandoSuperAdmin) return;
+    setState(() => _verificandoSuperAdmin = true);
+    await superAdmin.verificarSuperAdmin();
+    if (mounted) {
+      setState(() => _verificandoSuperAdmin = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, auth, _) {
-        if (!auth.autenticado || auth.restaurante == null) {
+    return Consumer2<AuthService, SuperAdminService>(
+      builder: (context, auth, superAdmin, _) {
+        final autenticado = auth.autenticado;
+
+        // Detectar cambios de autenticación
+        if (_ultimoEstadoAutenticado != autenticado) {
+          _ultimoEstadoAutenticado = autenticado;
+          if (autenticado) {
+            // Acaba de loguearse → verificar si es super admin
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _verificar(superAdmin);
+            });
+          } else {
+            // Acaba de cerrar sesión → limpiar
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              superAdmin.limpiar();
+            });
+          }
+        }
+
+        // No autenticado → login
+        if (!autenticado) {
           return const LoginScreen();
         }
 
+        // CRÍTICO: si está autenticado pero todavía no se verificó super admin,
+        // mostrar loading. Evita que muestre "sin rol" prematuramente.
+        if (!superAdmin.verificado || _verificandoSuperAdmin) {
+          return const Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text('Cargando...'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // PRIORIDAD 1: Es Super Admin → panel del SaaS
+        if (superAdmin.esSuperAdmin) {
+          return const SuperAdminScreen();
+        }
+
+        // PRIORIDAD 2: Usuario normal → necesita restaurante asignado
+        if (auth.restaurante == null) {
+          return _buildSinRol(context, auth);
+        }
+
+        // PRIORIDAD 3: Routing por rol
         switch (auth.rol) {
           case RolUsuario.admin:
             return const AdminScreen();
