@@ -6,7 +6,7 @@ import '../services/auth_service.dart';
 import '../services/super_admin_service.dart';
 
 /// Panel del Super Admin (dueño del SaaS).
-/// Muestra todos los restaurantes y permite crear nuevos.
+/// Muestra todos los restaurantes y permite crear nuevos / activar / desactivar.
 class SuperAdminScreen extends StatefulWidget {
   const SuperAdminScreen({super.key});
 
@@ -106,7 +106,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
   }
 
   Widget _buildContenido(SuperAdminService service) {
-    if (service.cargando) {
+    if (service.cargando && service.restaurantes.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -144,7 +144,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text(
-                'Restaurantes activos',
+                'Restaurantes',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -156,7 +156,8 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
             if (service.restaurantes.isEmpty)
               _buildEmpty()
             else
-              ...service.restaurantes.map(_buildRestauranteCard),
+              ...service.restaurantes
+                  .map((r) => _buildRestauranteCard(context, service, r)),
           ],
         ),
       ),
@@ -164,8 +165,12 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
   }
 
   Widget _buildResumen(SuperAdminService service) {
+    final total = service.restaurantes.length;
+    final activos = service.restaurantes.where((r) => r.activo).length;
+    final inactivos = total - activos;
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.superficie,
         borderRadius: BorderRadius.circular(8),
@@ -175,9 +180,23 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
         children: [
           _buildStat(
             icono: Icons.store_mall_directory_outlined,
-            valor: '${service.restaurantes.length}',
-            label: 'Restaurantes',
+            valor: '$total',
+            label: 'Total',
             color: AppTheme.rojo,
+          ),
+          const VerticalDivider(width: 24, thickness: 0.5),
+          _buildStat(
+            icono: Icons.check_circle_outline,
+            valor: '$activos',
+            label: 'Activos',
+            color: AppTheme.verde,
+          ),
+          const VerticalDivider(width: 24, thickness: 0.5),
+          _buildStat(
+            icono: Icons.pause_circle_outline,
+            valor: '$inactivos',
+            label: 'Inactivos',
+            color: AppTheme.textoTerciario,
           ),
         ],
       ),
@@ -194,22 +213,22 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icono, color: color, size: 20),
+            child: Icon(icono, color: color, size: 18),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 valor,
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: AppTheme.textoPrimario,
                 ),
@@ -217,7 +236,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: AppTheme.textoSecundario,
                 ),
               ),
@@ -228,7 +247,11 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
     );
   }
 
-  Widget _buildRestauranteCard(RestauranteResumen r) {
+  Widget _buildRestauranteCard(
+    BuildContext context,
+    SuperAdminService service,
+    RestauranteResumen r,
+  ) {
     final color = AppTheme.hexToColor(r.colorPrimario);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -236,59 +259,168 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       decoration: BoxDecoration(
         color: AppTheme.superficie,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.borde, width: 0.5),
+        border: Border.all(
+          color: r.activo ? AppTheme.borde : AppTheme.rojo.withValues(alpha: 0.3),
+          width: r.activo ? 0.5 : 1,
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(8),
+      child: Opacity(
+        opacity: r.activo ? 1.0 : 0.65,
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.restaurant_menu, color: color, size: 20),
             ),
-            child: Icon(
-              Icons.restaurant_menu,
-              color: color,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  r.nombre,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textoPrimario,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          r.nombre,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textoPrimario,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildBadgeEstado(r.activo),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '/${r.slug}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.textoTerciario,
+                  const SizedBox(height: 2),
+                  Text(
+                    '/${r.slug}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textoTerciario,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            Switch(
+              value: r.activo,
+              activeColor: AppTheme.verde,
+              inactiveTrackColor: AppTheme.rojo.withValues(alpha: 0.3),
+              onChanged: (nuevoValor) =>
+                  _confirmarToggle(context, service, r, nuevoValor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBadgeEstado(bool activo) {
+    final color = activo ? AppTheme.verde : AppTheme.rojo;
+    final fondo =
+        activo ? AppTheme.verdeFondo : AppTheme.rojoFondo;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: fondo,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        activo ? 'Activo' : 'Inactivo',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmarToggle(
+    BuildContext context,
+    SuperAdminService service,
+    RestauranteResumen r,
+    bool nuevoValor,
+  ) async {
+    final desactivando = !nuevoValor;
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        icon: Icon(
+          desactivando ? Icons.pause_circle_outline : Icons.play_circle_outline,
+          size: 40,
+          color: desactivando ? AppTheme.rojo : AppTheme.verde,
+        ),
+        title: Text(
+          desactivando
+              ? '¿Desactivar ${r.nombre}?'
+              : '¿Activar ${r.nombre}?',
+          style: const TextStyle(fontSize: 16),
+          textAlign: TextAlign.center,
+        ),
+        content: Text(
+          desactivando
+              ? 'Los usuarios de este restaurante NO podrán iniciar sesión hasta que lo reactives.\n\nÚsalo para clientes morosos o pausas temporales.'
+              : 'Los usuarios podrán iniciar sesión normalmente.',
+          style: const TextStyle(fontSize: 13),
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
           ),
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AppTheme.borde, width: 0.5),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  desactivando ? AppTheme.rojo : AppTheme.verde,
+              foregroundColor: Colors.white,
             ),
+            child: Text(desactivando ? 'Desactivar' : 'Activar'),
           ),
         ],
       ),
     );
+
+    if (confirmado != true) return;
+
+    final error = await service.toggleActivo(
+      restauranteId: r.id,
+      nuevoEstado: nuevoValor,
+    );
+
+    if (!mounted) return;
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: AppTheme.rojo,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            desactivando
+                ? '🚫 ${r.nombre} desactivado. Los usuarios no podrán entrar.'
+                : '✅ ${r.nombre} activado. Los usuarios pueden entrar.',
+          ),
+          backgroundColor: desactivando ? AppTheme.rojo : AppTheme.verde,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Widget _buildEmpty() {
@@ -309,14 +441,6 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
               style: TextStyle(
                 fontSize: 13,
                 color: AppTheme.textoSecundario,
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Click en "Nuevo restaurante" para empezar',
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.textoTerciario,
               ),
             ),
           ],
@@ -362,14 +486,14 @@ class _CrearRestauranteDialogState extends State<_CrearRestauranteDialog> {
   String? _error;
 
   static const _coloresSugeridos = [
-    Color(0xFFE63946), // Rojo
-    Color(0xFFD63031), // Rojo oscuro
-    Color(0xFF1976D2), // Azul
-    Color(0xFF388E3C), // Verde
-    Color(0xFFEF9F27), // Naranja
-    Color(0xFF8E44AD), // Morado
-    Color(0xFF2C3E50), // Gris azulado
-    Color(0xFFE91E63), // Rosa
+    Color(0xFFE63946),
+    Color(0xFFD63031),
+    Color(0xFF1976D2),
+    Color(0xFF388E3C),
+    Color(0xFFEF9F27),
+    Color(0xFF8E44AD),
+    Color(0xFF2C3E50),
+    Color(0xFFE91E63),
   ];
 
   @override
@@ -491,9 +615,7 @@ class _CrearRestauranteDialogState extends State<_CrearRestauranteDialog> {
                           label: 'Nombre del restaurante',
                           hint: 'Ej: Pizzería Don Pepe',
                           validator: (v) =>
-                              (v == null || v.trim().isEmpty)
-                                  ? 'Requerido'
-                                  : null,
+                              (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                         ),
                         const SizedBox(height: 12),
                         const Text(
@@ -527,11 +649,8 @@ class _CrearRestauranteDialogState extends State<_CrearRestauranteDialog> {
                                   ),
                                 ),
                                 child: seleccionado
-                                    ? const Icon(
-                                        Icons.check,
-                                        color: Colors.white,
-                                        size: 18,
-                                      )
+                                    ? const Icon(Icons.check,
+                                        color: Colors.white, size: 18)
                                     : null,
                               ),
                             );
@@ -563,7 +682,7 @@ class _CrearRestauranteDialogState extends State<_CrearRestauranteDialog> {
                               child: _buildCampo(
                                 ctrl: _prefijoMesaCtrl,
                                 label: 'Prefijo',
-                                hint: 'M, T, ...',
+                                hint: 'M, T...',
                                 validator: (v) =>
                                     (v == null || v.trim().isEmpty)
                                         ? 'Req'
@@ -689,7 +808,8 @@ class _CrearRestauranteDialogState extends State<_CrearRestauranteDialog> {
                               ),
                             )
                           : const Icon(Icons.rocket_launch, size: 18),
-                      label: Text(_enviando ? 'Creando...' : 'Crear restaurante'),
+                      label:
+                          Text(_enviando ? 'Creando...' : 'Crear restaurante'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.rojo,
                         foregroundColor: Colors.white,
@@ -802,11 +922,8 @@ Password: ${resultado.adminPassword}
                 ),
                 child: const Row(
                   children: [
-                    Icon(
-                      Icons.check_circle,
-                      color: AppTheme.verdeOscuro,
-                      size: 20,
-                    ),
+                    Icon(Icons.check_circle,
+                        color: AppTheme.verdeOscuro, size: 20),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -831,11 +948,8 @@ Password: ${resultado.adminPassword}
                       color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      Icons.restaurant_menu,
-                      color: color,
-                      size: 18,
-                    ),
+                    child:
+                        Icon(Icons.restaurant_menu, color: color, size: 18),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -871,24 +985,16 @@ Password: ${resultado.adminPassword}
                 ),
               ),
               const SizedBox(height: 8),
-              _buildCredencial(
-                context,
-                label: 'Email',
-                valor: resultado.adminEmail!,
-              ),
+              _buildCredencial(context,
+                  label: 'Email', valor: resultado.adminEmail!),
               const SizedBox(height: 6),
-              _buildCredencial(
-                context,
-                label: 'Password',
-                valor: resultado.adminPassword!,
-                esPassword: true,
-              ),
+              _buildCredencial(context,
+                  label: 'Password',
+                  valor: resultado.adminPassword!,
+                  esPassword: true),
               const SizedBox(height: 6),
-              _buildCredencial(
-                context,
-                label: 'Nombre',
-                valor: resultado.adminNombre!,
-              ),
+              _buildCredencial(context,
+                  label: 'Nombre', valor: resultado.adminNombre!),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(10),
@@ -898,11 +1004,8 @@ Password: ${resultado.adminPassword}
                 ),
                 child: const Row(
                   children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: AppTheme.amarilloOscuro,
-                      size: 16,
-                    ),
+                    Icon(Icons.warning_amber_rounded,
+                        color: AppTheme.amarilloOscuro, size: 16),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(

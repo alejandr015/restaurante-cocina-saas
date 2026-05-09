@@ -7,16 +7,14 @@ class RestauranteResumen {
   final String nombre;
   final String slug;
   final String colorPrimario;
-  final int? totalUsuarios;
-  final int? totalProductos;
+  final bool activo;
 
   RestauranteResumen({
     required this.id,
     required this.nombre,
     required this.slug,
     required this.colorPrimario,
-    this.totalUsuarios,
-    this.totalProductos,
+    required this.activo,
   });
 
   factory RestauranteResumen.fromJson(Map<String, dynamic> json) =>
@@ -25,6 +23,15 @@ class RestauranteResumen {
         nombre: json['nombre'] as String,
         slug: json['slug'] as String,
         colorPrimario: json['color_primario'] as String? ?? '#3B82F6',
+        activo: json['activo'] as bool? ?? true,
+      );
+
+  RestauranteResumen copyWith({bool? activo}) => RestauranteResumen(
+        id: id,
+        nombre: nombre,
+        slug: slug,
+        colorPrimario: colorPrimario,
+        activo: activo ?? this.activo,
       );
 }
 
@@ -53,9 +60,11 @@ class ResultadoCrearRestaurante {
         adminNombre = null;
 }
 
-/// Servicio para operaciones de Super Admin (dueño del SaaS)
+/// Servicio para operaciones de Super Admin (dueño del SaaS).
 class SuperAdminService extends ChangeNotifier {
   final SupabaseClient _supabase = Supabase.instance.client;
+
+  static const String _crearRestauranteFunction = 'swift-handler';
 
   bool _esSuperAdmin = false;
   bool _verificado = false;
@@ -69,9 +78,27 @@ class SuperAdminService extends ChangeNotifier {
   bool get cargando => _cargando;
   String? get error => _error;
 
-  /// Verifica si el usuario actual es super_admin
+  SuperAdminService() {
+    verificarSuperAdmin();
+
+    _supabase.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      if (event == AuthChangeEvent.signedIn ||
+          event == AuthChangeEvent.tokenRefreshed) {
+        verificarSuperAdmin();
+      } else if (event == AuthChangeEvent.signedOut) {
+        _esSuperAdmin = false;
+        _verificado = true;
+        _restaurantes = [];
+        notifyListeners();
+      }
+    });
+  }
+
   Future<void> verificarSuperAdmin() async {
     final user = _supabase.auth.currentUser;
+    debugPrint('🔍 [SuperAdmin] Verificando user: ${user?.email}');
+
     if (user == null) {
       _esSuperAdmin = false;
       _verificado = true;
@@ -88,15 +115,19 @@ class SuperAdminService extends ChangeNotifier {
 
       _esSuperAdmin = response != null;
       _verificado = true;
+
+      debugPrint(
+        '✅ [SuperAdmin] ${_esSuperAdmin ? "ES" : "NO es"} super admin',
+      );
       notifyListeners();
     } catch (e) {
+      debugPrint('❌ [SuperAdmin] Error verificando: $e');
       _esSuperAdmin = false;
       _verificado = true;
       notifyListeners();
     }
   }
 
-  /// Carga todos los restaurantes (solo funciona si es super admin gracias a RLS)
   Future<void> cargarRestaurantes() async {
     try {
       _cargando = true;
@@ -105,7 +136,7 @@ class SuperAdminService extends ChangeNotifier {
 
       final response = await _supabase
           .from('restaurantes')
-          .select('id, nombre, slug, color_primario')
+          .select('id, nombre, slug, color_primario, activo')
           .order('nombre');
 
       _restaurantes = (response as List)
@@ -121,7 +152,48 @@ class SuperAdminService extends ChangeNotifier {
     }
   }
 
-  /// Crea un nuevo restaurante completo (con admin) llamando a la Edge Function
+  /// Activa o desactiva un restaurante.
+  /// Cuando está desactivado, los usuarios del restaurante NO pueden iniciar sesión.
+  /// Devuelve null si OK, o mensaje de error.
+  Future<String?> toggleActivo({
+    required String restauranteId,
+    required bool nuevoEstado,
+  }) async {
+    try {
+      debugPrint(
+        '🔄 [SuperAdmin] ${nuevoEstado ? "Activando" : "Desactivando"} restaurante $restauranteId',
+      );
+
+      // Optimistic update local
+      final idx =
+          _restaurantes.indexWhere((r) => r.id == restauranteId);
+      if (idx >= 0) {
+        _restaurantes[idx] = _restaurantes[idx].copyWith(activo: nuevoEstado);
+        notifyListeners();
+      }
+
+      // Update en BD
+      await _supabase
+          .from('restaurantes')
+          .update({'activo': nuevoEstado})
+          .eq('id', restauranteId);
+
+      debugPrint('✅ [SuperAdmin] Estado actualizado correctamente');
+      return null;
+    } catch (e) {
+      debugPrint('❌ [SuperAdmin] Error toggle: $e');
+      // Rollback local
+      final idx =
+          _restaurantes.indexWhere((r) => r.id == restauranteId);
+      if (idx >= 0) {
+        _restaurantes[idx] =
+            _restaurantes[idx].copyWith(activo: !nuevoEstado);
+        notifyListeners();
+      }
+      return 'Error al cambiar estado: $e';
+    }
+  }
+
   Future<ResultadoCrearRestaurante> crearRestaurante({
     required String nombre,
     required String colorPrimario,
@@ -133,8 +205,10 @@ class SuperAdminService extends ChangeNotifier {
     String? adminTelefono,
   }) async {
     try {
+      debugPrint('🚀 [SuperAdmin] Llamando función...');
+
       final response = await _supabase.functions.invoke(
-        'crear-restaurante',
+        _crearRestauranteFunction,
         body: {
           'nombre': nombre,
           'color_primario': colorPrimario,
@@ -148,17 +222,21 @@ class SuperAdminService extends ChangeNotifier {
         },
       );
 
+      debugPrint('📥 [SuperAdmin] Status: ${response.status}');
+
       final data = response.data as Map<String, dynamic>;
 
       if (data.containsKey('error')) {
         return ResultadoCrearRestaurante.error(data['error'] as String);
       }
 
-      // Recargar lista
       await cargarRestaurantes();
 
       final rest = data['restaurante'] as Map<String, dynamic>;
       final admin = data['admin'] as Map<String, dynamic>;
+
+      // Asegurar que el campo activo viene (default true para nuevos)
+      rest['activo'] = rest['activo'] ?? true;
 
       return ResultadoCrearRestaurante.exito(
         restaurante: RestauranteResumen.fromJson(rest),
@@ -167,13 +245,13 @@ class SuperAdminService extends ChangeNotifier {
         adminNombre: admin['nombre'] as String,
       );
     } catch (e) {
+      debugPrint('❌ [SuperAdmin] Error crear: $e');
       return ResultadoCrearRestaurante.error('Error: $e');
     }
   }
 
   void limpiar() {
     _esSuperAdmin = false;
-    _verificado = false;
     _restaurantes = [];
     _error = null;
     _cargando = false;
